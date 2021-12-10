@@ -27,12 +27,18 @@ while True:
             print('Успешный вход под именем {}!'.format(user.name))
 
     if prompt == '2':
-        break
+        if user.name:
+            functions.book_order_mode(user._uuid)
+        else:
+            print('Вы не вошли в систему!')
 
     if prompt == '3':
-        break
-
-    if prompt == '4':
-        break
+        if user.name:
+            functions.book_return_mode(user._uuid)
+        else:
+            print('Вы не вошли в систему!')
+            functions.book_check_debt_mode(user._uuid)
+        else:
+            print('Вы не вошли в систему!')
     
     
