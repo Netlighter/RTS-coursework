@@ -47,5 +47,3 @@ while True:
             functions.book_check_debt_mode(user._uuid)
         else:
             print('Вы не вошли в систему!')
-    
-    

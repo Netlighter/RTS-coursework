@@ -6,12 +6,36 @@ from random import choice
 from pprint import pprint
 
 import classes
+import exceptions
+import strings
+
+
+def split_diff(diff):
+    if isinstance(diff, int):
+        return (diff // 1440, diff // 60 % 24, diff % 60)
+    else:
+        raise exceptions.DiffTypeError(strings.EXCEPTION_DIFF_TYPE_ERROR)
+
+
+def greet(user, debt_num):
+    action_message = (
+        strings.GREETING_SELECT_ACTION,
+        '\n'.join('{}. {}'.format(k, v) for k, v in enumerate(strings.GREETING_ACTIONS, 1))
+        )
+    message_order = (
+        strings.INFO_WELCOME,
+        strings.GREETING_USER,
+        user.name,
+        strings.GREETING_DEBTS,
+        debt_num,
+        strings.SEPARATOR,
+        *action_message,
+        strings.GREETING_EXIT_TITLE
+        )
+    return '{}\n{} {}\n{} {}\n{}\n{}\n\n{}\n\n>>>'.format(*message_order)
+
 
 def choose_mode(user):
-    with sqlite3.connect('library.db') as conn:
-        cur = conn.cursor()
-        cur.execute('SELECT * FROM books')
-        # pprint(cur.fetchall())
     with sqlite3.connect('library.db') as conn:
         now = int(pendulum.now().format('X'))
         cur = conn.cursor()
@@ -19,25 +43,13 @@ def choose_mode(user):
             'SELECT COUNT(*) FROM orders WHERE uuid=? AND expire_date < ?',
             (user._uuid, now)
             )
-        return input(f'''Автоматизированная система обслуживания читателей v1.0
-        ------------
-        Пользователь: {user.name or "Гость"}
-
-        Задолженности: {cur.fetchall()[0][0]}
-        ------------
-        Выберите действие:
-        1. авторизовать читательский билет
-        2. оформить книгу
-        3. вернуть книгу
-        4. проверить задолженности
-
-        q. выйти
-
-        >>>''')
+        username = user.name or 'Гость'
+        debt_num = cur.fetchall()[0][0]
+        return input(greet(username, debt_num))
 
 
 def auth_mode():
-    uuid = input('Введите UUID участника клуба: ')
+    uuid = input(strings.INPUT_UUID)
     with sqlite3.connect('library.db') as conn:
         cur = conn.cursor()
         cur.execute(
@@ -51,29 +63,31 @@ def auth_mode():
             return None
 
 
-def scan_isbn(ordered_only):
-    prompt = input('1. Отсканировать ISBN\n2. Ввести ISBN вручную\n>>> ')
-    if prompt == '1':
-        with sqlite3.connect('library.db') as conn:
-            cur = conn.cursor()
-            cur.execute('SELECT isbn FROM books')
-            all_books = [book[0] for book in cur.fetchall()]
-            cur.execute('SELECT isbn FROM orders')
-            ordered_books = [book[0] for book in cur.fetchall()]
-            if ordered_only:
-                try:
-                    isbn = choice(ordered_books)
-                except IndexError:
-                    isbn = None
-            else:
-                try:
-                    isbn = choice(list(set(all_books) - set(ordered_books)))
-                except IndexError:
-                    isbn = None
-    if prompt == '2':
-        isbn = input('Введите ISBN книги:')
-    return isbn
+def scan_isbn_auto(ordered_only):
+    with sqlite3.connect('library.db') as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT isbn FROM books')
+        all_books = [book[0] for book in cur.fetchall()]
+        cur.execute('SELECT isbn FROM orders')
+        ordered_books = [book[0] for book in cur.fetchall()]
+        if ordered_only:
+            try:
+                return choice(ordered_books)
+            except IndexError:
+                return None
+        else:
+            try:
+                return choice(list(set(all_books) - set(ordered_books)))
+            except IndexError:
+                return None
 
+
+def scan_isbn(ordered_only):
+    prompt = input(strings.INPUT_ISBN_CHOOSE)
+    if prompt == '1':
+        return scan_isbn_auto(ordered_only)
+    if prompt == '2':
+        return input(strings.INPUT_ISBN)
 
 
 def book_order_mode(uuid):
@@ -88,7 +102,7 @@ def book_order_mode(uuid):
         books = cur.fetchall()
         if books:
             if books[0][4]:
-                print('Книга уже на кого-то оформлена!')
+                print(strings.already_ordered)
             else:
                 now = int(pendulum.now().format('X'))
                 order_time = 60 * 60 * 24 * days
@@ -101,11 +115,9 @@ def book_order_mode(uuid):
                     (uuid, isbn, now, now+order_time)
                     )
                 conn.commit()
-                print('Книга "{}" автора {} успешно оформлена на {} дней!'.format(
-                    books[0][1], books[0][2], days
-                    ))
+                print(strings.SUCCESS_ORDER.format(*books[0], days))
         else:
-            print('Все книги разобраны!')
+            print(strings.FAIL_ORDER_NO_BOOKS)
 
 
 def book_return_mode(uuid):
@@ -138,11 +150,11 @@ def book_return_mode(uuid):
                     (isbn,)
                     )
                 book = cur.fetchall()[0]
-                print('Книга {} автора {} успешно возвращена!'.format(book[1], book[2]))
+                print(strings.success_return.format(*book))
             else:
-                print('Книга ещё не оформлена!')
+                print(strings.FAIL_ORDER_NOT_ORDERED_YET)
         else:
-            print('Такой книги нет в БД!')
+            print(strings.FAIL_ORDER_NOT_IN_DB)
 
 
 def book_check_debt_mode(uuid):
@@ -154,7 +166,7 @@ def book_check_debt_mode(uuid):
             (uuid, now)
             )
         expired_orders = cur.fetchall()
-        print('\nПросроченные заказы: ')
+        print('\n{} '.format(strings.ORDERS_EXPIRED))
         for order in expired_orders:
             cur.execute(
                 'SELECT name, author FROM books WHERE isbn=?',
@@ -165,10 +177,8 @@ def book_check_debt_mode(uuid):
             now_date = pendulum.from_timestamp(now)
             expire_date = pendulum.from_timestamp(order[3])
             diff = now_date.diff(expire_date).in_minutes()
-            diff_minutes = diff % 60
-            diff_hours = diff // 60 % 60
-            diff_days = diff // 3600 % 24
-            print('{}, автор: {}. Срок: {} дн. {} ч. {} мин.'.format(
+            diff_days, diff_hours, diff_minutes = split_diff(diff)
+            print(strings.CHECK_DEBT_EXPIRED.format(
                 book_title, book_author, diff_days, diff_hours, diff_minutes
                 ))
 
@@ -177,7 +187,7 @@ def book_check_debt_mode(uuid):
             (uuid, now)
             )
         non_expired_orders = cur.fetchall()
-        print('\nНе просроченные заказы: ')
+        print('\n{} '.format(strings.ORDERS_NON_EXPIRED))
         for order in non_expired_orders:
             cur.execute(
                 'SELECT name, author FROM books WHERE isbn=?',
@@ -188,9 +198,7 @@ def book_check_debt_mode(uuid):
             now_date = pendulum.from_timestamp(now)
             expire_date = pendulum.from_timestamp(order[3])
             diff = expire_date.diff(now_date).in_minutes()
-            diff_minutes = diff % 60
-            diff_hours = diff // 60 % 24
-            diff_days = diff // (60 * 24)
-            print('{}, автор: {}. До конца срока: {} дн. {} ч. {} мин.'.format(
+            diff_days, diff_hours, diff_minutes = split_diff(diff)
+            print(strings.CHECK_DEBT_NON_EXPIRED.format(
                 book_title, book_author, diff_days, diff_hours, diff_minutes
                 ))
