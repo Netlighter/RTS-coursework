@@ -28,7 +28,8 @@ while True:
                 print('Успешный вход под именем {}!'.format(user.name))
             else:
                 print('Такого пользователя нет в системе!')
-                sys.exit()
+                user = classes.User(None, None)
+                prompt = functions.choose_mode(user)
 
     if prompt == '2':
         if user.name:

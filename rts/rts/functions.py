@@ -25,7 +25,7 @@ def greet(user, debt_num):
     message_order = (
         strings.INFO_WELCOME,
         strings.GREETING_USER,
-        user.name,
+        user.name or strings.GUEST,
         strings.GREETING_DEBTS,
         debt_num,
         strings.SEPARATOR,
@@ -43,9 +43,8 @@ def choose_mode(user):
             'SELECT COUNT(*) FROM orders WHERE uuid=? AND expire_date < ?',
             (user._uuid, now)
             )
-        username = user.name or 'Гость'
         debt_num = cur.fetchall()[0][0]
-        return input(greet(username, debt_num))
+        return input(greet(user, debt_num))
 
 
 def auth_mode():
@@ -101,8 +100,9 @@ def book_order_mode(uuid):
             )
         books = cur.fetchall()
         if books:
-            if books[0][4]:
-                print(strings.already_ordered)
+            books = books[0]
+            if books[4]:
+                print(strings.FAIL_ALREADY_ORDERED)
             else:
                 now = int(pendulum.now().format('X'))
                 order_time = 60 * 60 * 24 * days
@@ -115,9 +115,10 @@ def book_order_mode(uuid):
                     (uuid, isbn, now, now+order_time)
                     )
                 conn.commit()
-                print(strings.SUCCESS_ORDER.format(*books[0], days))
+                print(strings.SUCCESS_ORDER.format(*books[1:3], days))
+        #TODO один и тот эксепшн если книги нет в бд И! если книги разобраны. 
         else:
-            print(strings.FAIL_ORDER_NO_BOOKS)
+            print(strings.FAIL_ORDER_NOT_IN_DB)
 
 
 def book_return_mode(uuid):
@@ -150,7 +151,7 @@ def book_return_mode(uuid):
                     (isbn,)
                     )
                 book = cur.fetchall()[0]
-                print(strings.success_return.format(*book))
+                print(strings.SUCCESS_RETURN.format(*book[1:3]))
             else:
                 print(strings.FAIL_ORDER_NOT_ORDERED_YET)
         else:
